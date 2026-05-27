@@ -16,7 +16,8 @@ local DEFAULT_CONFIG = {
   archiveExtrasDestination = 'client-assets/%d',
   installPackagedFiles = true,
   packagedFilesDestination = 'client-assets/%d',
-  packagedFilesRequired = false
+  packagedFilesRequired = false,
+  installInWorkDir = true
 }
 
 local activeDownload
@@ -300,6 +301,19 @@ local function completeMarkerPath(version)
   return string.format('/things/%d/.client-assets-complete', version)
 end
 
+local function joinPhysicalPath(base, path)
+  base = tostring(base or ''):gsub('\\', '/'):gsub('/+$', '')
+  path = tostring(path or ''):gsub('\\', '/'):gsub('^/+', '')
+  if base == '' then
+    return path
+  end
+  return base .. '/' .. path
+end
+
+local function physicalInstallPath(path)
+  return joinPhysicalPath(g_resources.getWorkDir(), path)
+end
+
 local function modernClientBasePath(version, bundled)
   if bundled then
     return string.format('/data/things/%d/', version)
@@ -363,6 +377,10 @@ local function hasBundledModernClientFiles(version)
 end
 
 local function markClientVersionInstalled(version)
+  if g_resources.writeFileContentsToWorkDir then
+    return g_resources.writeFileContentsToWorkDir(completeMarkerPath(version), string.format('client=%d\n', version))
+  end
+
   g_resources.makeDir(string.format('/things/%d', version))
   return g_resources.writeFileContents(completeMarkerPath(version), string.format('client=%d\n', version))
 end
@@ -692,8 +710,26 @@ local function verifyInstalledSha256(destinationPath, expectedSha256, deleteOnMi
   return true
 end
 
-local function installDownloadedFile(downloadPath, destinationPath, decompressLzma, expectedFileSha256, allowHashMismatch)
-  if not g_resources.writeDownloadedFile(downloadPath, destinationPath, decompressLzma == true) then
+local function shouldInstallInWorkDir(config)
+  return config and config.installInWorkDir ~= false
+end
+
+local function writeDownloadedFile(config, downloadPath, destinationPath, decompressLzma)
+  if shouldInstallInWorkDir(config) and g_resources.writeDownloadedFileToWorkDir then
+    return g_resources.writeDownloadedFileToWorkDir(downloadPath, destinationPath, decompressLzma == true)
+  end
+  return g_resources.writeDownloadedFile(downloadPath, destinationPath, decompressLzma == true)
+end
+
+local function extractDownloadedArchive(config, downloadPath, destinationPath, entryPrefix, stripPrefix)
+  if shouldInstallInWorkDir(config) and g_resources.extractDownloadedArchiveToWorkDir then
+    return g_resources.extractDownloadedArchiveToWorkDir(downloadPath, destinationPath, entryPrefix or '', stripPrefix == true)
+  end
+  return g_resources.extractDownloadedArchive(downloadPath, destinationPath, entryPrefix or '', stripPrefix == true)
+end
+
+local function installDownloadedFile(config, downloadPath, destinationPath, decompressLzma, expectedFileSha256, allowHashMismatch)
+  if not writeDownloadedFile(config, downloadPath, destinationPath, decompressLzma) then
     return false, 'Unable to write downloaded asset: ' .. destinationPath
   end
 
@@ -706,8 +742,8 @@ local function installDownloadedFile(downloadPath, destinationPath, decompressLz
   return ok, hashError
 end
 
-local function installDownloadedArchive(downloadPath, destinationPath, entryPrefix, stripPrefix, expectedPath, expectedSha256)
-  if not g_resources.extractDownloadedArchive(downloadPath, destinationPath, entryPrefix or '', stripPrefix == true) then
+local function installDownloadedArchive(config, downloadPath, destinationPath, entryPrefix, stripPrefix, expectedPath, expectedSha256)
+  if not extractDownloadedArchive(config, downloadPath, destinationPath, entryPrefix, stripPrefix) then
     return false, 'Unable to extract downloaded archive: ' .. destinationPath
   end
 
@@ -897,6 +933,7 @@ local function installManifestEntries(config, descriptor, files, index, installe
 
       if downloadInfo.extractArchive then
         ok, hashError = installDownloadedArchive(
+          config,
           path,
           downloadInfo.destinationPath,
           downloadInfo.archiveEntryPrefix,
@@ -905,7 +942,7 @@ local function installManifestEntries(config, descriptor, files, index, installe
           downloadInfo.expectedFileSha256
         )
       else
-        ok, hashError = installDownloadedFile(path, downloadInfo.destinationPath, downloadInfo.decompressLzma, downloadInfo.expectedFileSha256, downloadInfo.allowHashMismatch)
+        ok, hashError = installDownloadedFile(config, path, downloadInfo.destinationPath, downloadInfo.decompressLzma, downloadInfo.expectedFileSha256, downloadInfo.allowHashMismatch)
       end
       if not ok then
         if nextFallback then
@@ -1009,6 +1046,8 @@ local function installFromArchive(config, descriptor, callback)
     end
 
     local label = versionLabel(descriptor.version)
+    local thingsDestination = string.format('things/%d', descriptor.version)
+    local soundsDestination = string.format('sounds/%d', descriptor.version)
 
     local function finishArchiveInstall()
       setDownloadProgress('Finishing asset install', 100)
@@ -1038,8 +1077,9 @@ local function installFromArchive(config, descriptor, callback)
         logInfo(string.format('Extracting archive extras for client %s: %s. This can take a while.', label, prefix))
         setDownloadBusy('Extracting files', string.format('Client %s extras: %s', label, prefix))
         scheduleDownloadStep(function()
-          g_resources.extractDownloadedArchive(path, destination, prefix, false)
+          extractDownloadedArchive(config, path, destination, prefix, false)
           logInfo(string.format('Finished archive extras for client %s: %s.', label, prefix))
+          logInfo(string.format('Archive extras install path: %s.', physicalInstallPath(destination)))
           extractNextExtra(extraIndex + 1)
         end)
       end
@@ -1055,8 +1095,9 @@ local function installFromArchive(config, descriptor, callback)
       logInfo(string.format('Extracting sound assets for client %s. This can take a while.', label))
       setDownloadBusy('Extracting files', string.format('Client %s sounds', label))
       scheduleDownloadStep(function()
-        if g_resources.extractDownloadedArchive(path, string.format('sounds/%d', descriptor.version), descriptor.archiveSoundsPrefix or 'sounds', true) then
+        if extractDownloadedArchive(config, path, soundsDestination, descriptor.archiveSoundsPrefix or 'sounds', true) then
           logInfo(string.format('Finished extracting sound assets for client %s.', label))
+          logInfo(string.format('Sound assets install path: %s.', physicalInstallPath(soundsDestination)))
         else
           logWarning(string.format('No sound assets were extracted for client %s.', label))
         end
@@ -1066,18 +1107,19 @@ local function installFromArchive(config, descriptor, callback)
 
     local function extractAssetHashIdentifier()
       logInfo(string.format('Extracting asset hash identifier for client %s.', label))
-      g_resources.extractDownloadedArchive(path, string.format('things/%d', descriptor.version), 'assets.json.sha256', false)
+      extractDownloadedArchive(config, path, thingsDestination, 'assets.json.sha256', false)
       extractSoundAssets()
     end
 
     logInfo(string.format('Extracting things assets for client %s. This can take a while.', label))
     setDownloadBusy('Extracting files', string.format('Client %s assets', label))
     scheduleDownloadStep(function()
-      if not g_resources.extractDownloadedArchive(path, string.format('things/%d', descriptor.version), descriptor.archiveThingsPrefix or 'assets', true) then
+      if not extractDownloadedArchive(config, path, thingsDestination, descriptor.archiveThingsPrefix or 'assets', true) then
         return callback(false, 'Unable to extract assets from archive.')
       end
 
       logInfo(string.format('Finished extracting things assets for client %s.', label))
+      logInfo(string.format('Client assets install path: %s.', physicalInstallPath(thingsDestination)))
       extractAssetHashIdentifier()
     end)
   end, function(progress, speed)
@@ -1135,12 +1177,13 @@ local function installPackagedFileList(config, descriptor, files, index, callbac
     setDownloadBusy('Extracting files', string.format('Client %s packaged files', versionLabel(descriptor.version)))
 
     scheduleDownloadStep(function()
-      local ok, extractError = installDownloadedArchive(downloadPath, destinationPath, '', false)
+      local ok, extractError = installDownloadedArchive(config, downloadPath, destinationPath, '', false)
       if not ok then
         return callback(false, extractError)
       end
 
       logInfo(string.format('Finished packaged file %d/%d for client %s: %s.', index, #files, versionLabel(descriptor.version), path))
+      logInfo(string.format('Packaged file install path: %s.', physicalInstallPath(destinationPath)))
       installPackagedFileList(config, descriptor, files, index + 1, callback)
     end)
   end, function(progress, speed)
@@ -1354,6 +1397,14 @@ function ensureClientVersion(version, callback)
           if not isClientVersionInstalled(version) then
             return finishDownload(false, 'Assets were downloaded but the install marker could not be written.')
           end
+        end
+
+        logInfo(string.format('Client %s installed at: %s.', versionLabel(version), physicalInstallPath(string.format('things/%d', version))))
+        if config.installSounds ~= false then
+          logInfo(string.format('Client %s sounds installed at: %s.', versionLabel(version), physicalInstallPath(string.format('sounds/%d', version))))
+        end
+        if config.installArchiveExtras ~= false or config.installPackagedFiles ~= false then
+          logInfo(string.format('Client %s extra files installed at: %s.', versionLabel(version), physicalInstallPath(string.format('client-assets/%d', version))))
         end
 
         finishDownload(true)

@@ -274,8 +274,11 @@ void Application::registerLuaFunctions()
     g_lua.bindSingletonFunction("g_resources", "fileChecksum", &ResourceManager::fileChecksum, &g_resources);
     g_lua.bindSingletonFunction("g_resources", "fileSha256", &ResourceManager::fileSha256, &g_resources);
     g_lua.bindSingletonFunction("g_resources", "writeDownloadedFile", &ResourceManager::writeDownloadedFile, &g_resources);
+    g_lua.bindSingletonFunction("g_resources", "writeDownloadedFileToWorkDir", &ResourceManager::writeDownloadedFileToWorkDir, &g_resources);
     g_lua.bindSingletonFunction("g_resources", "extractDownloadedArchive", &ResourceManager::extractDownloadedArchive, &g_resources);
+    g_lua.bindSingletonFunction("g_resources", "extractDownloadedArchiveToWorkDir", &ResourceManager::extractDownloadedArchiveToWorkDir, &g_resources);
     g_lua.bindSingletonFunction("g_resources", "extractDownloadedZip", &ResourceManager::extractDownloadedZip, &g_resources);
+    g_lua.bindSingletonFunction("g_resources", "writeFileContentsToWorkDir", &ResourceManager::writeFileContentsToWorkDir, &g_resources);
     g_lua.bindSingletonFunction("g_resources", "filesChecksums", &ResourceManager::filesChecksums, &g_resources);
     g_lua.bindSingletonFunction("g_resources", "selfChecksum", &ResourceManager::selfChecksum, &g_resources);
     g_lua.bindSingletonFunction("g_resources", "updateFiles", &ResourceManager::updateFiles, &g_resources);

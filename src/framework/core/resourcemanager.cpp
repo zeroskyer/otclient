@@ -762,6 +762,18 @@ bool ResourceManager::writeDownloadedFile(std::string path, std::string destinat
     );
 }
 
+bool ResourceManager::writeDownloadedFileToWorkDir(std::string path, std::string destinationPath, const bool decompressLzma)
+{
+    const auto oldWriteDir = getWriteDir();
+    if (!setWriteDir(getWorkDir()))
+        return false;
+
+    const bool ok = writeDownloadedFile(std::move(path), std::move(destinationPath), decompressLzma);
+    setWriteDir(oldWriteDir);
+    addSearchPath(getWorkDir(), true);
+    return ok;
+}
+
 bool ResourceManager::extractDownloadedArchive(std::string path, std::string destinationPath, std::string entryPrefix, const bool stripPrefix)
 {
     const auto downloadedPath = path;
@@ -866,9 +878,33 @@ bool ResourceManager::extractDownloadedArchive(std::string path, std::string des
     return wroteFile;
 }
 
+bool ResourceManager::extractDownloadedArchiveToWorkDir(std::string path, std::string destinationPath, std::string entryPrefix, const bool stripPrefix)
+{
+    const auto oldWriteDir = getWriteDir();
+    if (!setWriteDir(getWorkDir()))
+        return false;
+
+    const bool ok = extractDownloadedArchive(std::move(path), std::move(destinationPath), std::move(entryPrefix), stripPrefix);
+    setWriteDir(oldWriteDir);
+    addSearchPath(getWorkDir(), true);
+    return ok;
+}
+
 bool ResourceManager::extractDownloadedZip(std::string path, std::string destinationPath, std::string entryPrefix, const bool stripPrefix)
 {
     return extractDownloadedArchive(std::move(path), std::move(destinationPath), std::move(entryPrefix), stripPrefix);
+}
+
+bool ResourceManager::writeFileContentsToWorkDir(const std::string& fileName, const std::string& data)
+{
+    const auto oldWriteDir = getWriteDir();
+    if (!setWriteDir(getWorkDir()))
+        return false;
+
+    const bool ok = writeFileBuffer(fileName, reinterpret_cast<const uint8_t*>(data.c_str()), data.size(), true);
+    setWriteDir(oldWriteDir);
+    addSearchPath(getWorkDir(), true);
+    return ok;
 }
 
 std::unordered_map<std::string, std::string> ResourceManager::filesChecksums()
