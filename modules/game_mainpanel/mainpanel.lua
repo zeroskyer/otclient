@@ -264,22 +264,24 @@ function getButton(id)
 end
 
 function toggleExtendedViewButtons(extended)
-    local optionsPanel = optionsController.ui.onPanel.options
-    local specialsPanel = optionsController.ui.onPanel.store
+    local mainPanelGroups = {
+        { name = "options", panel = optionsController.ui.onPanel.options },
+        { name = "specials", panel = optionsController.ui.onPanel.specials },
+        { name = "store", panel = optionsController.ui.onPanel.store }
+    }
+    local originalPanels = {}
+    for _, group in ipairs(mainPanelGroups) do
+        originalPanels[group.name] = group.panel
+    end
+
     local rightGamePanel = modules.client_topmenu.getRightGameButtonsPanel()
     if extended then
-        local optionChildren = optionsPanel:getChildren()
-        for _, button in ipairs(optionChildren) do
-            if not button:isDestroyed() then
-                button.originalPanel = "options"
-                rightGamePanel:addChild(button)
-            end
-        end
-        local specialChildren = specialsPanel:getChildren()
-        for _, button in ipairs(specialChildren) do
-            if not button:isDestroyed() then
-                button.originalPanel = "specials"
-                rightGamePanel:addChild(button)
+        for _, group in ipairs(mainPanelGroups) do
+            for _, button in ipairs(group.panel:getChildren()) do
+                if not button:isDestroyed() then
+                    button.originalPanel = group.name
+                    rightGamePanel:addChild(button)
+                end
             end
         end
         optionsController.ui:hide()
@@ -288,10 +290,9 @@ function toggleExtendedViewButtons(extended)
         local children = rightGamePanel:getChildren()
         for _, button in ipairs(children) do
             if not button:isDestroyed() then
-                if button.originalPanel == "options" then
-                    optionsPanel:addChild(button)
-                elseif button.originalPanel == "specials" then
-                    specialsPanel:addChild(button)
+                local originalPanel = originalPanels[button.originalPanel]
+                if originalPanel then
+                    originalPanel:addChild(button)
                 end
             end
         end
